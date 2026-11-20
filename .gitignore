@@ -1,0 +1,15 @@
+# build output
+build/
+*.apk
+*.idsig
+
+# toolchain binaries (download separately)
+tools/*.jar
+tools/*.zip
+
+# signing material
+keystore.jks
+
+# local tests / screenshots
+node_modules/
+*.log
