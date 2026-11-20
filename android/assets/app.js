@@ -483,6 +483,8 @@
   }
 
   function saveChats() {
+    // state.chats may be rebound (filter/clear), so keep the workspace store in sync
+    state.stores[state.mode] = state.chats;
     dirtyStores[state.mode] = true;
     if (chatStore.backend() !== 'IndexedDB') {
       // localStorage fallback: synchronous write, with image eviction when full
@@ -2133,11 +2135,12 @@
   function clearAll() {
     if (!state.chats.length) { toast('当前工作区没有对话'); return; }
     var label = state.mode === 'shared' ? '共享创作' : '隔离对话';
-    dialog({ title: '删除所有对话', text: '「' + label + '」工作区的对话都会被删除，另一个工作区不受影响。', ok: '全部删除', danger: true }).then(function (ok) {
+    dialog({ title: '删除所有对话', text: '「' + label + '」工作区的对话都会被删除，另一个工作区不受影响。', ok: '全部删除', danger: true }).then(async function (ok) {
       if (!ok) return;
       state.chats = [];
       state.activeId = null;
       saveChats();
+      await flushChats();
       renderSidebar();
       renderMessages();
       toast('已删除');
