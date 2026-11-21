@@ -160,7 +160,7 @@
         <div style="font:400 13px/20px var(--font);color:var(--label-secondary);margin-bottom:8px">API 地址</div>
         <input id="baseUrl" class="pill-input" type="url" spellcheck="false" placeholder="https://api.example.com/v1" style="height:46px;border-radius:12px;font-size:15px" />
         <button class="btn-ghost" id="btnFetchModels" style="margin-top:10px">获取模型列表</button>
-        <p class="field-note" style="margin:8px 0 0">填任意 OpenAI 兼容地址，模型名会按接口返回自动切换。</p>
+        <p class="field-note" style="margin:8px 0 0">填 OpenAI 兼容地址，需带上版本路径（如 https://api.example.com/v1 或 http://host:端口/v1），模型名会按接口返回自动切换。</p>
       </div>
     </div>
     <p class="field-note">在 platform.deepseek.com 创建；仅保存在本机，不经过任何第三方服务器。</p>
@@ -268,7 +268,7 @@
     </div>
 
     <div class="card" style="margin-top:18px">
-      <div class="row"><span class="label">版本</span><span class="value" id="appVersion">1.0.1</span></div>
+      <div class="row"><span class="label">版本</span><span class="value" id="appVersion">1.0.2</span></div>
       <div class="row"><span class="label">说明</span><span class="value">非官方 API 客户端</span></div>
       <div class="row"><span class="label">模型</span><span class="value" id="aboutModel">—</span></div>
       <div class="row"><span class="label">存储</span><span class="value" id="storageLine">—</span></div>

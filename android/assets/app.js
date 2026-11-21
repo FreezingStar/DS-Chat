@@ -13,7 +13,7 @@
 
   var scroller, messagesEl, welcomeEl, inputEl, sendBtn, thinkChip, searchChip, topTitle;
 
-  var APP_VERSION = '1.0.1';
+  var APP_VERSION = '1.0.2';
   var chatStore = window.DSChatStore;
   var SETTINGS_KEY = 'ds.settings.v1';
   var CHATS_KEY = 'ds.chats.v1'; // legacy, migrated into the isolated workspace

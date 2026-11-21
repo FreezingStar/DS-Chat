@@ -19,6 +19,14 @@
     return b;
   }
 
+  function netHint(base) {
+    var b = normalizeBase(base);
+    var tip = '';
+    if (/^http:\/\//i.test(b)) tip += '（当前地址是 http，如仍失败请改用 https）';
+    if (!/\/[^/]+$/.test(b.replace(/^https?:\/\/[^/]+/i, ''))) tip += '（地址通常需要带版本路径，例如 /v1）';
+    return tip;
+  }
+
   async function toError(res) {
     var msg = '请求失败（HTTP ' + res.status + '）';
     var code = '';
@@ -79,7 +87,7 @@
       });
     } catch (e) {
       if (e && e.name === 'AbortError') throw e;
-      throw ApiError('网络连接失败，请检查网络后重试', 0, 'network');
+      throw ApiError('网络连接失败，请检查网络后重试' + netHint(opts.base), 0, 'network');
     }
     if (!res.ok) throw await toError(res);
 
@@ -131,7 +139,7 @@
         signal: opts.signal
       });
     } catch (e) {
-      throw ApiError('网络连接失败，请检查网络后重试', 0, 'network');
+      throw ApiError('网络连接失败，请检查网络后重试' + netHint(opts.base), 0, 'network');
     }
     if (!res.ok) throw await toError(res);
     var j = await res.json();
