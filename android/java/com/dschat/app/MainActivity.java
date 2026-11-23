@@ -1,13 +1,18 @@
 package com.dschat.app;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ContentValues;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,13 +32,21 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
 
     private static final String HOST = "app.local";
     private static final int REQ_PICK_FILE = 1001;
+    private static final int REQ_AUDIO = 1002;
+
+    private SpeechRecognizer speech;
+    private boolean speechWanted = false;
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -226,6 +239,123 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ bridge
 
+    // ------------------------------------------------------------------ speech
+
+    private void beginSpeech() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechError("这台设备没有可用的语音识别服务");
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            speechWanted = true;
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            return;
+        }
+        startListening();
+    }
+
+    private void startListening() {
+        speechWanted = true;
+        if (speech == null) {
+            speech = SpeechRecognizer.createSpeechRecognizer(this);
+            speech.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) { }
+                @Override public void onBeginningOfSpeech() { }
+                @Override public void onRmsChanged(float rmsdB) { }
+                @Override public void onBufferReceived(byte[] buffer) { }
+                @Override public void onEndOfSpeech() { }
+                @Override public void onEvent(int eventType, Bundle params) { }
+
+                @Override
+                public void onError(int error) {
+                    speechWanted = false;
+                    speechError(speechErrorMessage(error));
+                }
+
+                @Override
+                public void onResults(Bundle results) {
+                    speechWanted = false;
+                    String text = firstResult(results);
+                    if (text != null) speechResult(text, true);
+                    else speechError("没有听清，请再说一次");
+                }
+
+                @Override
+                public void onPartialResults(Bundle partialResults) {
+                    String text = firstResult(partialResults);
+                    if (text != null) speechResult(text, false);
+                }
+            });
+        }
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        try {
+            speech.cancel();
+            speech.startListening(intent);
+        } catch (Exception e) {
+            speechError("语音识别启动失败");
+        }
+    }
+
+    private String firstResult(Bundle bundle) {
+        if (bundle == null) return null;
+        ArrayList<String> list = bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        if (list == null || list.isEmpty()) return null;
+        String text = list.get(0);
+        return text == null || text.trim().isEmpty() ? null : text.trim();
+    }
+
+    private String speechErrorMessage(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_AUDIO: return "录音出错，请检查麦克风";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "没有麦克风权限";
+            case SpeechRecognizer.ERROR_NETWORK:
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT: return "语音识别需要联网，请检查网络";
+            case SpeechRecognizer.ERROR_NO_MATCH: return "没有听清，请再说一次";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "识别忙，请稍后再试";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "没有检测到说话";
+            case SpeechRecognizer.ERROR_SERVER: return "语音识别服务出错";
+            default: return "语音识别失败";
+        }
+    }
+
+    private void speechResult(String text, boolean isFinal) {
+        if (web == null) return;
+        String js = "window.__onSpeechResult&&window.__onSpeechResult(" + JSONObject.quote(text) + "," + isFinal + ")";
+        web.evaluateJavascript(js, null);
+    }
+
+    private void speechError(String message) {
+        if (web == null) return;
+        String js = "window.__onSpeechError&&window.__onSpeechError(" + JSONObject.quote(message) + ")";
+        web.evaluateJavascript(js, null);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (speechWanted) startListening();
+            } else {
+                speechWanted = false;
+                speechError("需要麦克风权限才能语音输入");
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (speech != null) {
+            try { speech.destroy(); } catch (Exception e) { /* noop */ }
+            speech = null;
+        }
+        super.onDestroy();
+    }
+
     private class Bridge {
 
         @JavascriptInterface
@@ -241,6 +371,24 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void toast(final String msg) {
             MainActivity.this.toast(msg);
+        }
+
+        @JavascriptInterface
+        public boolean speechAvailable() {
+            return SpeechRecognizer.isRecognitionAvailable(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void startSpeech() {
+            runOnUiThread(() -> beginSpeech());
+        }
+
+        @JavascriptInterface
+        public void stopSpeech() {
+            runOnUiThread(() -> {
+                speechWanted = false;
+                if (speech != null) speech.stopListening();
+            });
         }
 
         @JavascriptInterface

@@ -1,4 +1,4 @@
-# DS Chat（安卓客户端） v1.0.2
+# DS Chat（安卓客户端） v1.1.0
 
 一个轻量的安卓 AI 聊天客户端：WebView 壳 + 纯前端，用你自己的 API Key 直连
 OpenAI 兼容接口，默认对接 DeepSeek（**DeepSeek-V4.1-Flash-1017**）。
@@ -11,7 +11,7 @@ OpenAI 兼容接口，默认对接 DeepSeek（**DeepSeek-V4.1-Flash-1017**）。
 > 包名 `com.dschat.app`，与官方客户端 `com.deepseek.chat` 完全独立，可与官方 App 共存安装。
 
 - 应用名：DS Chat
-- 版本：V1.0.2（versionCode 1）
+- 版本：V1.1.0（versionCode 1）
 - 最低系统：Android 10（API 29）
 - 安装包：`build/DS-Chat.apk`（约 92 KB）
 

@@ -13,7 +13,7 @@
 
   var scroller, messagesEl, welcomeEl, inputEl, sendBtn, thinkChip, searchChip, topTitle;
 
-  var APP_VERSION = '1.0.2';
+  var APP_VERSION = '1.1.0';
   var chatStore = window.DSChatStore;
   var SETTINGS_KEY = 'ds.settings.v1';
   var CHATS_KEY = 'ds.chats.v1'; // legacy, migrated into the isolated workspace
@@ -87,7 +87,9 @@
 
   function isDeepSeekCompat() {
     if (isQuick()) return true;
-    return /deepseek/i.test(state.settings.baseUrl || '') || /^deepseek/i.test(state.settings.model || '');
+    // only the real DeepSeek endpoint gets thinking / reasoning_effort / tools;
+    // third-party relays often reject those fields even when serving deepseek-* ids
+    return /(^|\.)deepseek\.com/i.test(state.settings.baseUrl || '');
   }
 
   function effectiveBase() {
@@ -202,7 +204,7 @@
       state.modelStatus = 'error';
       state.modelError = (e && e.status === 401 && isQuick())
         ? '这个 Key 不是 DeepSeek 的（快速模式只能填 DeepSeek API Key），需要别家请切到兼容模式'
-        : ((e && e.message) || '获取模型失败');
+        : (((e && e.message) || '获取模型失败') + (e && e.status ? '（HTTP ' + e.status + '）' : ''));
       state.modelsSource = '';
       renderModelSeg();
       return false;
@@ -211,6 +213,49 @@
 
   function currentModel() {
     return (state.settings.model || '').trim() || 'deepseek-flash';
+  }
+
+  // Per-chat settings can keep an old model id after switching providers.
+  // Never send a model the current endpoint did not list.
+  function thinkingKind(id) {
+    var m = String(id || '').toLowerCase();
+    if (/(reasoner|reasoning|thinking|qwq|(^|[-_.])o[134]([-_.]|$)|(^|[-_.])r1([-_.]|$))/.test(m)) return 'always';
+    return 'never';
+  }
+
+  function activeModelId() {
+    var chat = activeChat();
+    var m = (chat && optsFor(chat).model) || currentModel();
+    if (state.models.length && !state.models.some(function (x) { return x.id === m; })) {
+      m = state.settings.model || (state.models[0] && state.models[0].id) || m;
+    }
+    return m;
+  }
+
+  function switchModel(id) {
+    if (!id) return;
+    state.settings.model = id;
+    var chat = activeChat();
+    if (chat) { chat.opts = optsFor(chat); chat.opts.model = id; }
+    saveSettings();
+    saveChats();
+    renderModelSeg();
+    refreshSendState();
+  }
+
+  function resolveModel(chat) {
+    var opts = optsFor(chat);
+    var want = opts.model || currentModel();
+    if (!state.models.length) return want;
+    var known = state.models.some(function (m) { return m.id === want; });
+    if (known) return want;
+    var alt = state.models.filter(function (m) { return m.id === state.settings.model; })[0] || state.models[0];
+    if (alt) {
+      toast('该接口没有 ' + want + '，已改用 ' + alt.id);
+      if (chat && chat.opts) chat.opts.model = alt.id;
+      return alt.id;
+    }
+    return want;
   }
 
   function limitsFor(mode) {
@@ -681,8 +726,12 @@
     var status = m.errorStatus || 0;
     if (status === 401) hint = '<button class="mini-btn brand" data-act="settings">打开设置</button>';
     if (status === 402) hint = '<a class="mini-btn" href="https://platform.deepseek.com/top_up" target="_blank">去充值</a>';
+    var meta = m.errorStatus
+      ? 'HTTP ' + m.errorStatus + (m.errorCode ? ' · ' + esc(m.errorCode) : '')
+      : '网络错误 · 无状态码';
     return '<div class="err-card"><svg class="ico"><use href="#i-alert"/></svg><div>' +
       esc(m.error) +
+      '<div class="err-meta">' + meta + '</div>' +
       '<div class="err-actions"><button class="mini-btn" data-act="regen" data-id="' + m.id + '">重试</button>' + hint + '</div>' +
       '</div></div>';
   }
@@ -1350,7 +1399,7 @@
       for await (var chunk of DeepSeekAPI.streamChat({
         apiKey: state.settings.apiKey,
         base: effectiveBase(),
-        model: o.model || currentModel(),
+        model: resolveModel(chat),
         messages: buildContext(chat, aiMsg, o, true),
         thinking: o.thinking,
         effort: state.settings.effort,
@@ -1386,6 +1435,7 @@
       if (!(e && e.name === 'AbortError')) {
         aiMsg.error = (e && e.message) || '请求失败，请重试';
         aiMsg.errorStatus = (e && e.status) || 0;
+        aiMsg.errorCode = (e && e.code) || '';
       }
     } finally {
       aiMsg._done = true;
@@ -2218,10 +2268,39 @@
       else send();
     });
     thinkChip.addEventListener('click', function () {
-      if (!isDeepSeekCompat()) { toast('当前接口不支持深度思考参数'); return; }
       haptic();
-      var on = toggleOpt('thinking');
-      toast(on ? '深度思考：开' : '深度思考：关');
+      var chat = activeChat();
+      if (!chat) { toast('先打开一个对话'); return; }
+      var desired = !optsFor(chat).thinking;
+      var kind = isDeepSeekCompat() ? 'toggle' : thinkingKind(activeModelId());
+      if (kind === 'toggle') {
+        var on = toggleOpt('thinking');
+        toast(on ? '深度思考：开' : '深度思考：关');
+        return;
+      }
+      if (desired) {
+        var alt = state.models.filter(function (m) { return thinkingKind(m.id) === 'always'; })[0];
+        if (alt) {
+          switchModel(alt.id);
+          chat.opts = optsFor(chat);
+          chat.opts.thinking = true;
+          saveChats();
+          toast('已切到 ' + (alt.name || alt.id) + '，它会深度思考');
+        } else {
+          toast('当前接口没有支持深度思考的模型');
+        }
+        return;
+      }
+      var plain = state.models.filter(function (m) { return thinkingKind(m.id) === 'never'; })[0];
+      if (plain) {
+        switchModel(plain.id);
+        chat.opts = optsFor(chat);
+        chat.opts.thinking = false;
+        saveChats();
+        toast('已切到 ' + (plain.name || plain.id) + '，不深度思考');
+      } else {
+        toast('当前模型始终深度思考，关不掉');
+      }
     });
     searchChip.addEventListener('click', function () {
       if (!isDeepSeekCompat()) { toast('当前接口不支持联网搜索参数'); return; }
@@ -2229,6 +2308,27 @@
       var on = toggleOpt('webSearch');
       toast(on ? '联网搜索：开（由模型决定是否搜索）' : '联网搜索：关');
     });
+    var speechBase = '';
+    $('#voiceBtn').addEventListener('click', function () {
+      haptic();
+      if (!(window.Native && window.Native.startSpeech)) {
+        toast('当前环境不支持语音输入');
+        return;
+      }
+      speechBase = inputEl.value;
+      toast('请说话…');
+      try { window.Native.startSpeech(); } catch (e) { toast('语音输入不可用'); }
+    });
+    window.__onSpeechResult = function (text, isFinal) {
+      if (typeof text !== 'string') return;
+      inputEl.value = speechBase + text;
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      if (isFinal) {
+        try { window.Native && window.Native.stopSpeech && window.Native.stopSpeech(); } catch (e) { /* noop */ }
+        toast('已识别');
+      }
+    };
+    window.__onSpeechError = function (msg) { toast(msg || '语音识别失败'); };
     $('#attachBtn').addEventListener('click', function () { $('#imageInput').click(); });
     $('#imageInput').addEventListener('change', function () {
       var files = this.files || [];

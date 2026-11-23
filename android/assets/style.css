@@ -1302,3 +1302,10 @@ html[data-theme="dark"] .nav .back { background: var(--bg-layer-2); }
   color: var(--brand-text);
   font-size: 13px;
 }
+
+.err-meta {
+  margin-top: 6px;
+  font: 400 12px/18px var(--font);
+  color: var(--label-caption);
+  letter-spacing: 0.2px;
+}
